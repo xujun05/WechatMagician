@@ -1,6 +1,9 @@
 package com.gh0u1l5.wechatmagician.util
 
+import android.content.Intent
+import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.SystemClock.elapsedRealtime
 import java.io.*
 import java.lang.System.currentTimeMillis
@@ -69,5 +72,13 @@ object FileUtil {
         if (modifiedAt < bootAt) {
             writeCallback(path)
         }
+    }
+
+    // notifyNewMediaFile notifies all the gallery apps that there is a new file to scan.
+    fun notifyNewMediaFile(path: String, context: Context?) {
+        val intent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
+        context?.sendBroadcast(intent.apply {
+            data = Uri.fromFile(File(path))
+        })
     }
 }
