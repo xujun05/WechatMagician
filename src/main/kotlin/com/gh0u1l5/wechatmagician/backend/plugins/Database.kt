@@ -7,6 +7,7 @@ import com.gh0u1l5.wechatmagician.backend.WechatPackage
 import com.gh0u1l5.wechatmagician.backend.WechatStatus
 import com.gh0u1l5.wechatmagician.storage.MessageCache
 import com.gh0u1l5.wechatmagician.storage.Preferences
+import com.gh0u1l5.wechatmagician.storage.SnsBlacklist
 import com.gh0u1l5.wechatmagician.storage.SnsDatabase.snsDB
 import com.gh0u1l5.wechatmagician.storage.Strings
 import com.gh0u1l5.wechatmagician.util.MessageUtil
@@ -16,7 +17,13 @@ import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.XposedHelpers.callMethod
 import de.robv.android.xposed.XposedHelpers.findAndHookMethod
 
-class Database(private val preferences: Preferences) {
+object Database {
+
+    private var preferences: Preferences? = null
+
+    fun init(_preferences: Preferences) {
+        preferences = _preferences
+    }
 
     private val str = Strings
     private val pkg = WechatPackage
@@ -65,7 +72,7 @@ class Database(private val preferences: Preferences) {
                         if (!values.getAsString("content").startsWith("\"")) {
                             return
                         }
-                        if (!preferences.getBoolean("settings_chatting_recall", true)) {
+                        if (!preferences!!.getBoolean("settings_chatting_recall", true)) {
                             return
                         }
                         handleMessageRecall(values)
@@ -78,7 +85,10 @@ class Database(private val preferences: Preferences) {
                         if (values["sourceType"] != 0) {
                             return
                         }
-                        if (!preferences.getBoolean("settings_sns_delete_moment", true)) {
+                        if (values["stringSeq"] in SnsBlacklist) {
+                            return
+                        }
+                        if (!preferences!!.getBoolean("settings_sns_delete_moment", true)) {
                             return
                         }
                         val content = values["content"] as ByteArray?
@@ -91,7 +101,7 @@ class Database(private val preferences: Preferences) {
                         if (values["commentflag"] != 1) {
                             return
                         }
-                        if (!preferences.getBoolean("settings_sns_delete_comment", true)) {
+                        if (!preferences!!.getBoolean("settings_sns_delete_comment", true)) {
                             return
                         }
                         val curActionBuf = values["curActionBuf"] as ByteArray?
