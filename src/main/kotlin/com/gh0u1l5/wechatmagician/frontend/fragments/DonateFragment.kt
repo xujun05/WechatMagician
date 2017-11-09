@@ -7,10 +7,13 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
+import android.view.View.GONE
 import android.view.ViewGroup
 import android.widget.Toast
+import com.gh0u1l5.wechatmagician.Global.STATUS_FLAG_CUSTOM_SCHEME
 import com.gh0u1l5.wechatmagician.Global.WECHAT_PACKAGE_NAME
 import com.gh0u1l5.wechatmagician.R
+import com.gh0u1l5.wechatmagician.frontend.fragments.StatusFragment.Companion.readHookStatus
 import com.gh0u1l5.wechatmagician.util.AlipayUtil
 import kotlinx.android.synthetic.main.fragment_donate.*
 
@@ -20,19 +23,22 @@ class DonateFragment : Fragment() {
     private val alipayCode = "FKX04114Q6YBQLKYU0KS09"
     private val tenpayCode = "f2f00-2YC_1Sfo3jM1G--Zj8kC2Z7koDXC8r"
 
-    override fun onCreateView(inflater: LayoutInflater?, container: ViewGroup?,
-                              savedInstanceState: Bundle?): View? {
-        // Inflate the layout for this fragment
-        return inflater!!.inflate(R.layout.fragment_donate, container, false)
-    }
+    override fun onCreateView(inflater: LayoutInflater?, container: ViewGroup?, savedInstanceState: Bundle?): View? =
+            inflater!!.inflate(R.layout.fragment_donate, container, false)
 
     override fun onStart() {
         super.onStart()
+
+        // Hide Tenpay if the URI router is not hijacked.
+        val status = readHookStatus(activity)
+        if (status == null || status[STATUS_FLAG_CUSTOM_SCHEME] != true) {
+            donate_tenpay.visibility = GONE
+        }
+
+        // Set onClick listeners for donation buttons.
         donate_alipay.setOnClickListener { view ->
             if (!AlipayUtil.hasInstalledAlipayClient(view.context)) {
-                Toast.makeText(
-                        view.context, R.string.prompt_alipay_not_found, Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(view.context, R.string.prompt_alipay_not_found, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             Toast.makeText(view.context, R.string.prompt_wait, Toast.LENGTH_SHORT).show()
@@ -49,14 +55,12 @@ class DonateFragment : Fragment() {
                 })
                 Toast.makeText(view.context, R.string.prompt_wait, Toast.LENGTH_SHORT).show()
             } catch (e: Throwable) {
-                Toast.makeText(view.context, e.message, Toast.LENGTH_SHORT).show()
+                Toast.makeText(view.context, e.localizedMessage, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     companion object {
-        fun newInstance(): DonateFragment {
-            return DonateFragment()
-        }
+        fun newInstance(): DonateFragment = DonateFragment()
     }
 }

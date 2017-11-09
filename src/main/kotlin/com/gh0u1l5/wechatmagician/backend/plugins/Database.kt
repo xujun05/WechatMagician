@@ -3,8 +3,8 @@ package com.gh0u1l5.wechatmagician.backend.plugins
 import android.content.ContentValues
 import com.gh0u1l5.wechatmagician.C
 import com.gh0u1l5.wechatmagician.Global.STATUS_FLAG_DATABASE
+import com.gh0u1l5.wechatmagician.Version
 import com.gh0u1l5.wechatmagician.backend.WechatPackage
-import com.gh0u1l5.wechatmagician.backend.WechatStatus
 import com.gh0u1l5.wechatmagician.storage.MessageCache
 import com.gh0u1l5.wechatmagician.storage.Preferences
 import com.gh0u1l5.wechatmagician.storage.SnsBlacklist
@@ -13,6 +13,7 @@ import com.gh0u1l5.wechatmagician.storage.Strings
 import com.gh0u1l5.wechatmagician.util.MessageUtil
 import com.gh0u1l5.wechatmagician.util.PackageUtil
 import de.robv.android.xposed.XC_MethodHook
+import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.XposedHelpers.callMethod
 import de.robv.android.xposed.XposedHelpers.findAndHookMethod
@@ -21,14 +22,14 @@ object Database {
 
     private var preferences: Preferences? = null
 
-    fun init(_preferences: Preferences) {
+    @JvmStatic fun init(_preferences: Preferences) {
         preferences = _preferences
     }
 
     private val str = Strings
     private val pkg = WechatPackage
 
-    fun hookDatabase() {
+    @JvmStatic fun hookDatabase() {
         when (null) {
             pkg.SQLiteDatabaseClass,
             pkg.SQLiteCursorFactory,
@@ -47,10 +48,10 @@ object Database {
                 }
                 if (snsDB !== param.result) {
                     snsDB = param.result
-                    // Force Wechat to retrieve existing SNS data online.
-                    callMethod(snsDB, "delete",
-                            "snsExtInfo3", "local_flag=0", null
-                    )
+                    // Force Wechat to retrieve existing SNS data from remote server.
+                    val deleted = ContentValues().apply { put("sourceType", 0) }
+                    callMethod(snsDB, "delete", "snsExtInfo3", "local_flag=0", null)
+                    callMethod(snsDB, "update", "SnsInfo", deleted, "sourceType in (8,10,12,14)", null)
                 }
             }
         })
@@ -111,7 +112,7 @@ object Database {
             }
         })
 
-        WechatStatus[STATUS_FLAG_DATABASE] = true
+        pkg.setStatus(STATUS_FLAG_DATABASE, true)
     }
 
     // handleMessageRecall notifies user that someone has recalled the given message.
@@ -120,18 +121,28 @@ object Database {
             return
         }
 
-        val msgId = values["msgId"] as Long
-        val msg = MessageCache[msgId] ?: return
+        try {
+            val msgId = values["msgId"] as Long
+            val msg = MessageCache[msgId] ?: return
 
-        val copy = msg.javaClass.newInstance()
-        PackageUtil.shadowCopy(msg, copy)
+            val copy = msg.javaClass.newInstance()
+            PackageUtil.shadowCopy(msg, copy)
 
-        val createTime = XposedHelpers.getLongField(msg, "field_createTime")
-        XposedHelpers.setIntField(copy, "field_type", values["type"] as Int)
-        XposedHelpers.setObjectField(copy, "field_content", values["content"])
-        XposedHelpers.setLongField(copy, "field_createTime", createTime + 1L)
+            val createTime = XposedHelpers.getLongField(msg, "field_createTime")
+            XposedHelpers.setIntField(copy, "field_type", values["type"] as Int)
+            XposedHelpers.setObjectField(copy, "field_content", values["content"])
+            XposedHelpers.setLongField(copy, "field_createTime", createTime + 1L)
 
-        XposedHelpers.callMethod(pkg.MsgStorageObject, pkg.MsgStorageInsertMethod, copy, false)
+            val version = pkg.version ?: return
+            when {
+                version >= Version("6.5.8") ->
+                    XposedHelpers.callMethod(pkg.MsgStorageObject, pkg.MsgStorageInsertMethod, copy, false)
+                else ->
+                    XposedHelpers.callMethod(pkg.MsgStorageObject, pkg.MsgStorageInsertMethod, copy)
+            }
+        } catch (e: Throwable) {
+            XposedBridge.log("DB => Handle message recall failed: $e")
+        }
     }
 
     // handleMomentDelete notifies user that someone has deleted the given moment.

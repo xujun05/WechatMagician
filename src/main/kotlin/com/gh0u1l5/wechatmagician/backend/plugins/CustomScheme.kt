@@ -5,7 +5,6 @@ import android.content.Intent
 import com.gh0u1l5.wechatmagician.C
 import com.gh0u1l5.wechatmagician.Global.STATUS_FLAG_CUSTOM_SCHEME
 import com.gh0u1l5.wechatmagician.backend.WechatPackage
-import com.gh0u1l5.wechatmagician.backend.WechatStatus
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers.findAndHookMethod
 
@@ -13,7 +12,7 @@ object CustomScheme {
 
     val pkg = WechatPackage
 
-    fun registerCustomSchemes() {
+    @JvmStatic fun registerCustomSchemes() {
         if (pkg.WXCustomSchemeEntry == null || pkg.WXCustomSchemeEntryStart == "") {
             return
         }
@@ -21,6 +20,7 @@ object CustomScheme {
         findAndHookMethod(
                 pkg.WXCustomSchemeEntry, pkg.WXCustomSchemeEntryStart,
                 C.Intent, object : XC_MethodHook() {
+            @Throws(Throwable::class)
             override fun beforeHookedMethod(param: MethodHookParam) {
                 val intent = param.args[0] as Intent?
                 val uri = intent?.data ?: return
@@ -47,6 +47,6 @@ object CustomScheme {
             }
         })
 
-        WechatStatus[STATUS_FLAG_CUSTOM_SCHEME] = true
+        pkg.setStatus(STATUS_FLAG_CUSTOM_SCHEME, true)
     }
 }

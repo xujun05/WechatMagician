@@ -6,6 +6,7 @@ import android.content.Context
 import com.gh0u1l5.wechatmagician.C
 import com.gh0u1l5.wechatmagician.Global.WECHAT_PACKAGE_NAME
 import com.gh0u1l5.wechatmagician.Version
+import com.gh0u1l5.wechatmagician.util.FileUtil
 import com.gh0u1l5.wechatmagician.util.PackageUtil.findClassIfExists
 import com.gh0u1l5.wechatmagician.util.PackageUtil.findClassesFromPackage
 import com.gh0u1l5.wechatmagician.util.PackageUtil.findFieldsWithType
@@ -14,12 +15,25 @@ import de.robv.android.xposed.XposedHelpers.*
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import net.dongliu.apk.parser.ApkFile
 import net.dongliu.apk.parser.bean.DexClass
+import java.io.File
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 // WechatPackage analyzes and stores critical classes and objects in Wechat application.
 // These classes and objects will be used for hooking and tampering with runtime data.
 object WechatPackage {
 
+    // status stores the working status of all the hooks.
+    private val statusLock = ReentrantReadWriteLock()
+    private val status: HashMap<String, Boolean> = hashMapOf()
+
+    // version stores the current version of Wechat
+    var version: Version? = null
+
     var XLogSetup: Class<*>? = null
+    var WebWXLoginUI: Class<*>? = null
+    var RemittanceAdapter: Class<*>? = null
     var WXCustomSchemeEntry: Class<*>? = null
     var WXCustomSchemeEntryStart = ""
     var EncEngine: Class<*>? = null
@@ -35,14 +49,11 @@ object WechatPackage {
     var MMFragmentActivity: Class<*>? = null
     var MMListPopupWindow: Class<*>? = null
 
-    var PLTextView: Class<*>? = null
-    var RemittanceAdapter: Class<*>? = null
-
+    var SnsActivity: Class<*>? = null
     var SnsUploadUI: Class<*>? = null
     var SnsUploadUIEditTextField = ""
-    var AdFrameLayout: Class<*>? = null
-    var SnsPostTextView: Class<*>? = null
-    var SnsPhotosContent: Class<*>? = null
+    var SnsUserUI: Class<*>? = null
+    var SnsTimeLineUI: Class<*>? = null
 
     var AlbumPreviewUI: Class<*>? = null
     var SelectContactUI: Class<*>? = null
@@ -51,12 +62,10 @@ object WechatPackage {
 
     var MsgInfoClass: Class<*>? = null
     var ContactInfoClass: Class<*>? = null
+
     var MsgStorageClass: Class<*>? = null
     var MsgStorageInsertMethod = ""
     @Volatile var MsgStorageObject: Any? = null
-
-    var XMLParserClass: Class<*>? = null
-    var XMLParseMethod = ""
 
     val CacheMapClass = "$WECHAT_PACKAGE_NAME.a.f"
     val CacheMapPutMethod = "k"
@@ -66,11 +75,16 @@ object WechatPackage {
     val ImgStorageLoadMethod = "a"
     @Volatile var ImgStorageObject: Any? = null
 
+    var XMLParserClass: Class<*>? = null
+    var XMLParseMethod = ""
+
     // Analyzes Wechat package statically for the name of classes.
     // WechatHook will do the runtime analysis and set the objects.
     fun init(lpparam: XC_LoadPackage.LoadPackageParam) {
         val loader = lpparam.classLoader
+
         val version = getVersion(lpparam)
+        this.version = version
 
         var apkFile: ApkFile? = null
         val classes: Array<DexClass>
@@ -81,8 +95,13 @@ object WechatPackage {
             apkFile?.close()
         }
 
+
         XLogSetup = findClassIfExists(
                 "$WECHAT_PACKAGE_NAME.xlog.app.XLogSetup", loader)
+        WebWXLoginUI = findClassIfExists(
+                "$WECHAT_PACKAGE_NAME.plugin.webwx.ui.ExtDeviceWXLoginUI", loader)
+        RemittanceAdapter = findClassIfExists(
+                "$WECHAT_PACKAGE_NAME.plugin.remittance.ui.RemittanceAdapterUI", loader)
         WXCustomSchemeEntry = findClassIfExists(
                 "$WECHAT_PACKAGE_NAME.plugin.base.stub.WXCustomSchemeEntryActivity", loader)
         WXCustomSchemeEntryStart = findMethodsByExactParameters(
@@ -97,9 +116,10 @@ object WechatPackage {
                 EncEngine, C.Int, C.ByteArray, C.Int
         ).firstOrNull()?.name ?: ""
 
+
         SQLiteDatabasePkg = when {
-            version >= Version("6.5.8") ->"com.tencent.wcdb"
-            else ->"com.tencent.mmdb"
+            version >= Version("6.5.8") -> "com.tencent.wcdb"
+            else -> "com.tencent.mmdb"
         }
         SQLiteDatabaseClass = findClassIfExists(
                 "$SQLiteDatabasePkg.database.SQLiteDatabase", loader)
@@ -110,27 +130,30 @@ object WechatPackage {
         SQLiteCancellationSignal = findClassIfExists(
                 "$SQLiteDatabasePkg.support.CancellationSignal", loader)
 
+
         val pkgUI = "$WECHAT_PACKAGE_NAME.ui"
         MMActivity = findClassIfExists("$pkgUI.MMActivity", loader)
         MMFragmentActivity = findClassIfExists("$pkgUI.MMFragmentActivity", loader)
         MMListPopupWindow = findClassIfExists("$pkgUI.base.MMListPopupWindow", loader)
 
-        PLTextView = findClassIfExists(
-                "$WECHAT_PACKAGE_NAME.kiss.widget.textview.PLSysTextView", loader)
-        RemittanceAdapter = findClassIfExists(
-                "$WECHAT_PACKAGE_NAME.plugin.remittance.ui.RemittanceAdapterUI", loader)
 
         val pkgSnsUI = "$WECHAT_PACKAGE_NAME.plugin.sns.ui"
-        SnsUploadUI = findClassesFromPackage(loader, classes, pkgSnsUI)
-                .filterBySuper(MMActivity)
+        val snsUIClasses = findClassesFromPackage(loader, classes, pkgSnsUI)
+        SnsActivity = snsUIClasses
+                .filterByField("$pkgUI.base.MMPullDownView")
+                .firstOrNull("SnsActivity")
+        SnsUploadUI = snsUIClasses
+                .filterByField("$pkgSnsUI.LocationWidget")
                 .filterByField("$pkgSnsUI.SnsUploadSayFooter")
                 .firstOrNull("SnsUploadUI")
         SnsUploadUIEditTextField = findFieldsWithType(
                 SnsUploadUI, "$pkgSnsUI.SnsEditText"
         ).firstOrNull()?.name ?: ""
-        AdFrameLayout = findClassIfExists("$pkgSnsUI.AdFrameLayout", loader)
-        SnsPostTextView = findClassIfExists("$pkgSnsUI.widget.SnsPostDescPreloadTextView", loader)
-        SnsPhotosContent = findClassIfExists("$pkgSnsUI.PhotosContent", loader)
+        SnsUserUI = findClassIfExists("$pkgSnsUI.SnsUserUI", loader)
+        SnsTimeLineUI = snsUIClasses
+                .filterByField("android.support.v7.app.ActionBar")
+                .firstOrNull("SnsTimeLineUI")
+
 
         val pkgGalleryUI = "$WECHAT_PACKAGE_NAME.plugin.gallery.ui"
         AlbumPreviewUI = findClassIfExists("$pkgGalleryUI.AlbumPreviewUI", loader)
@@ -140,6 +163,7 @@ object WechatPackage {
                 SelectConversationUI, C.Boolean, C.Boolean
         ).firstOrNull()?.name ?: ""
 
+
         val storageClasses = findClassesFromPackage(loader, classes, "$WECHAT_PACKAGE_NAME.storage")
         MsgInfoClass = storageClasses
                 .filterByMethod(C.Boolean, "isSystem")
@@ -148,14 +172,37 @@ object WechatPackage {
                 .filterByMethod(C.String, "getCityCode")
                 .filterByMethod(C.String, "getCountryCode")
                 .firstOrNull("ContactInfoClass")
+
         if (MsgInfoClass != null) {
-            MsgStorageClass = storageClasses
-                    .filterByMethod(C.Long, MsgInfoClass!!, C.Boolean)
-                    .firstOrNull("MsgStorageClass")
-            MsgStorageInsertMethod = findMethodsByExactParameters(
-                    MsgStorageClass, C.Long, MsgInfoClass!!, C.Boolean
-            ).firstOrNull()?.name ?: ""
+            MsgStorageClass = when {
+                version >= Version("6.5.8") ->
+                    storageClasses
+                            .filterByMethod(C.Long, MsgInfoClass!!, C.Boolean)
+                            .firstOrNull("MsgStorageClass")
+                else ->
+                    storageClasses
+                            .filterByMethod(C.Long, MsgInfoClass!!)
+                            .firstOrNull("MsgStorageClass")
+            }
+            MsgStorageInsertMethod = when {
+                version >= Version("6.5.8") ->
+                    findMethodsByExactParameters(
+                            MsgStorageClass, C.Long, MsgInfoClass!!, C.Boolean
+                    ).firstOrNull()?.name ?: ""
+                else ->
+                    findMethodsByExactParameters(
+                        MsgStorageClass, C.Long, MsgInfoClass!!
+                    ).firstOrNull()?.name ?: ""
+            }
         }
+
+//        ImgStorageClass = findClassesFromPackage(loader, classes, WECHAT_PACKAGE_NAME, 1)
+//                .filterByMethod(C.String, ImgStorageLoadMethod, C.String, C.String, C.String, C.Boolean)
+//                .firstOrNull("ImgStorageClass")
+//        ImgStorageCacheField = findFieldsWithGenericType(
+//                ImgStorageClass, "$CacheMapClass<java.lang.String, android.graphics.Bitmap>"
+//        ).firstOrNull()?.name ?: ""
+
 
         val platformClasses = findClassesFromPackage(loader, classes,"$WECHAT_PACKAGE_NAME.sdk.platformtools")
         XMLParserClass = platformClasses
@@ -164,15 +211,9 @@ object WechatPackage {
         XMLParseMethod = findMethodsByExactParameters(
                 XMLParserClass, C.Map, C.String, C.String
         ).firstOrNull()?.name ?: ""
-
-//        ImgStorageClass = findClassesFromPackage(loader, classes, WECHAT_PACKAGE_NAME, 1)
-//                .filterByMethod(C.String, ImgStorageLoadMethod, C.String, C.String, C.String, C.Boolean)
-//                .firstOrNull("ImgStorageClass")
-//        ImgStorageCacheField = findFieldsWithGenericType(
-//                ImgStorageClass, "$CacheMapClass<java.lang.String, android.graphics.Bitmap>"
-//        ).firstOrNull()?.name ?: ""
     }
 
+    // getVersion returns the version of current package / application
     private fun getVersion(lpparam: XC_LoadPackage.LoadPackageParam): Version {
         val activityThreadClass = findClass("android.app.ActivityThread", null)
         val activityThread = callStaticMethod(activityThreadClass, "currentActivityThread")
@@ -181,9 +222,33 @@ object WechatPackage {
         return Version(versionName ?: throw Error("Cannot get Wechat version"))
     }
 
+    // setStatus updates current status of the Wechat hooks.
+    fun setStatus(key: String, value: Boolean) {
+        statusLock.write {
+            status[key] = value
+        }
+    }
+
+    // writeStatus writes current status to the given path.
+    fun writeStatus(path: String) {
+        statusLock.read {
+            try {
+                FileUtil.writeOnce(path, {
+                    FileUtil.writeObjectToDisk(it, status)
+                })
+                FileUtil.setWorldReadable(File(path))
+            } catch (_: Throwable) {
+                // Ignore this one
+            }
+        }
+    }
+
     override fun toString(): String {
         return this.javaClass.declaredFields.filter {
-            it.name != "INSTANCE"
+            when(it.name) {
+                "INSTANCE", "status", "statusLock" -> false
+                else -> true
+            }
         }.joinToString("\n") {
             it.isAccessible = true; "${it.name} = ${it.get(this)}"
         }

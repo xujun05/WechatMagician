@@ -4,7 +4,6 @@ import com.gh0u1l5.wechatmagician.C
 import com.gh0u1l5.wechatmagician.Global.STATUS_FLAG_IMG_STORAGE
 import com.gh0u1l5.wechatmagician.Global.STATUS_FLAG_MSG_STORAGE
 import com.gh0u1l5.wechatmagician.backend.WechatPackage
-import com.gh0u1l5.wechatmagician.backend.WechatStatus
 import com.gh0u1l5.wechatmagician.storage.MessageCache
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -15,7 +14,7 @@ object Storage {
 
     private val pkg = WechatPackage
 
-    fun hookMsgStorage() {
+    @JvmStatic fun hookMsgStorage() {
         if (pkg.MsgStorageClass == null || pkg.MsgStorageInsertMethod == "") {
             return
         }
@@ -44,10 +43,10 @@ object Storage {
             }
         })
 
-        WechatStatus[STATUS_FLAG_MSG_STORAGE] = true
+        pkg.setStatus(STATUS_FLAG_MSG_STORAGE, true)
     }
 
-    fun hookImgStorage() {
+    @JvmStatic fun hookImgStorage() {
         if (pkg.ImgStorageClass == null) {
             return
         }
@@ -85,6 +84,6 @@ object Storage {
 //            }
 //        })
 
-        WechatStatus[STATUS_FLAG_IMG_STORAGE] = true
+        pkg.setStatus(STATUS_FLAG_IMG_STORAGE, true)
     }
 }

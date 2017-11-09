@@ -14,6 +14,7 @@ object C {
 
     val AttributeSet = android.util.AttributeSet::class.java
     val Bundle = android.os.Bundle::class.java
+    val Button = android.widget.Button::class.java
     val ContentValues = android.content.ContentValues::class.java
     val Context = android.content.Context::class.java
     val Intent = android.content.Intent::class.java
@@ -21,7 +22,7 @@ object C {
     val Menu = android.view.Menu::class.java
     val MotionEvent = android.view.MotionEvent::class.java
     val View = android.view.View::class.java
-    val ViewOnLongClickListener = android.view.View.OnLongClickListener::class.java
+    val ViewGroup = android.view.ViewGroup::class.java
 
     val ByteArray = ByteArray::class.java
     val ObjectArray = Array<Any>::class.java

@@ -2,10 +2,12 @@ package com.gh0u1l5.wechatmagician.backend
 
 import android.content.Context
 import com.gh0u1l5.wechatmagician.C
-import com.gh0u1l5.wechatmagician.Global.STATUS_FLAG_HOOKING
+import com.gh0u1l5.wechatmagician.Global.FOLDER_SHARED
+import com.gh0u1l5.wechatmagician.Global.MAGICIAN_PACKAGE_NAME
 import com.gh0u1l5.wechatmagician.Global.WECHAT_PACKAGE_NAME
 import com.gh0u1l5.wechatmagician.backend.plugins.*
 import com.gh0u1l5.wechatmagician.storage.Preferences
+import com.gh0u1l5.wechatmagician.util.FileUtil.getApplicationDataDir
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge.log
@@ -37,10 +39,18 @@ class WechatHook : IXposedHookLoadPackage {
     // NOTE: Remember to catch all the exceptions here, otherwise you may get boot loop.
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         try {
-            if (lpparam.packageName == WECHAT_PACKAGE_NAME) {
-                hookApplicationAttach(lpparam.classLoader, { context ->
-                    handleLoadWechat(lpparam, context)
-                })
+            when (lpparam.packageName) {
+                MAGICIAN_PACKAGE_NAME ->
+                    hookApplicationAttach(lpparam.classLoader, { context ->
+                        val pluginFrontend = Frontend
+                        pluginFrontend.init(lpparam.classLoader)
+                        tryHook(pluginFrontend::notifyStatus)
+                        pluginFrontend.setDirectoryPermissions(context)
+                    })
+                WECHAT_PACKAGE_NAME ->
+                    hookApplicationAttach(lpparam.classLoader, { context ->
+                        handleLoadWechat(lpparam, context)
+                    })
             }
         } catch (e: Throwable) { log(e) }
     }
@@ -49,50 +59,51 @@ class WechatHook : IXposedHookLoadPackage {
         val loader = lpparam.classLoader
 
         WechatPackage.init(lpparam)
-        WechatStatus.listen(context)
-        WechatStatus[STATUS_FLAG_HOOKING] = true
         settings.load(context, "settings")
         developer.load(context, "developer")
 
+        val pluginDeveloper = Developer
+        pluginDeveloper.init(loader, developer)
+        tryHook(pluginDeveloper::traceTouchEvents)
+        tryHook(pluginDeveloper::traceActivities)
+        tryHook(pluginDeveloper::enableXLog)
+        tryHook(pluginDeveloper::traceXMLParse)
+        tryHook(pluginDeveloper::traceDatabase)
+
+        val pluginAutoLogin = AutoLogin
+        pluginAutoLogin.init(settings)
+        tryHook(pluginAutoLogin::enableAutoLogin)
+
+        val pluginSnsUI = SnsUI
+        tryHook(pluginSnsUI::setLongClickListenerForSnsUserUI)
+        tryHook(pluginSnsUI::setLongClickListenerForSnsTimeLineUI)
+        tryHook(pluginSnsUI::cleanTextViewBeforeForwarding)
+
+        val pluginLimits = Limits
+        pluginLimits.init(settings)
+        tryHook(pluginLimits::breakSelectPhotosLimit)
+        tryHook(pluginLimits::breakSelectContactLimit)
+        tryHook(pluginLimits::breakSelectConversationLimit)
+
+        val pluginStorage = Storage
+        tryHook(pluginStorage::hookMsgStorage)
+        tryHook(pluginStorage::hookImgStorage)
+
+        val pluginXML = XML
+        pluginXML.init(settings)
+        tryHook(pluginXML::hookXMLParse)
+
+        val pluginDatabase = Database
+        pluginDatabase.init(settings)
+        tryHook(pluginDatabase::hookDatabase)
+
+        val pluginCustomScheme = CustomScheme
+        tryHook(pluginCustomScheme::registerCustomSchemes)
+
         thread(start = true) {
-            // Note: The developer settings must be valid before hooking the functions,
-            //       so we write a “spinlock" here to wait the update.
-            while (!developer.loaded);
-
-            val pluginDeveloper = Developer
-            pluginDeveloper.init(loader, developer)
-            tryHook(pluginDeveloper::traceTouchEvents)
-            tryHook(pluginDeveloper::traceActivities)
-            tryHook(pluginDeveloper::enableXLog)
-            tryHook(pluginDeveloper::traceXMLParse)
-            tryHook(pluginDeveloper::traceDatabase)
-        }
-
-        thread(start = true) {
-            val pluginSnsUI = SnsUI
-            tryHook(pluginSnsUI::setItemLongPressPopupMenu)
-            tryHook(pluginSnsUI::cleanTextViewForForwarding)
-
-            val pluginLimits = Limits
-            pluginLimits.init(settings)
-            tryHook(pluginLimits::breakSelectPhotosLimit)
-            tryHook(pluginLimits::breakSelectContactLimit)
-            tryHook(pluginLimits::breakSelectConversationLimit)
-
-            val pluginStorage = Storage
-            tryHook(pluginStorage::hookMsgStorage)
-            tryHook(pluginStorage::hookImgStorage)
-
-            val pluginXML = XML
-            pluginXML.init(settings)
-            tryHook(pluginXML::hookXMLParse)
-
-            val pluginDatabase = Database
-            pluginDatabase.init(settings)
-            tryHook(pluginDatabase::hookDatabase)
-
-            val pluginCustomScheme = CustomScheme
-            tryHook(pluginCustomScheme::registerCustomSchemes)
+            val wechatDataDir = getApplicationDataDir(context)
+            val magicianDataDir = wechatDataDir.replace(WECHAT_PACKAGE_NAME, MAGICIAN_PACKAGE_NAME)
+            WechatPackage.writeStatus("$magicianDataDir/$FOLDER_SHARED/status")
         }
     }
 }
